@@ -1,0 +1,525 @@
+package SM64
+
+import "output"
+import "core:os"
+import "core:fmt"
+import "core:crypto/legacy/sha1"
+
+VALID_HASH: string : "9bef1128717f958171a4afac3ed78ee2bb4e86ce"
+
+SM64: Sm64Inner = Sm64Inner {
+  texture_data = nil,
+  rom_data = nil,
+}
+
+
+Sm64Inner :: struct {
+  texture_data_ptr: ^u8,
+  rom_data_ptr: ^u8,
+  texture_data: []u8,
+  rom_data: []u8,
+}
+
+Error :: enum {
+  OS_Error,
+  InvalidMarioPosition,
+  InvalidRom,
+  None,
+}
+
+error_to_string :: proc(err: Error) -> string {
+    #partial switch err {
+      case Error.OS_Error:
+        return "IO error!"
+      case Error.InvalidMarioPosition:
+        return "Invalid mario position, ensure coordinates are above ground"
+      case Error.InvalidRom:
+        return "Invalid SM64 US rom!"
+    }
+    return "Unknown error"
+} 
+
+Sm64 :: struct {
+  global: Sm64Inner,
+}
+
+new :: proc(filepath: string) -> (Sm64, Error) {
+    data, ok := os.read_entire_file(filepath, context.allocator)
+    if !ok {
+        return Sm64{}, Error.OS_Error
+    }
+
+    SM64.texture_data = make_slice([]u8, output.SM64_TEXTURE_WIDTH * output.SM64_TEXTURE_HEIGHT * 4, context.allocator)
+    SM64.rom_data = data
+
+    rom_ptr: ^u8
+    if len(SM64.rom_data) > 0 {
+        rom_ptr = &SM64.rom_data[0]
+    } else {
+        rom_ptr = nil
+    }
+
+    texture_ptr: ^u8
+    if len(SM64.texture_data) > 0 {
+        texture_ptr = &SM64.texture_data[0]
+    } else {
+        texture_ptr = nil
+    }
+
+    output.sm64_global_init(rom_ptr, texture_ptr)
+
+    return Sm64{global=SM64}, Error.None
+}
+
+Texture :: struct {
+  data: []u8,
+  width: u32,
+  height: u32,
+}
+
+sm64_mario_texture_atlas :: proc(sm64: Sm64) -> Texture {
+  if len(sm64.global.texture_data) == 0 {
+    return Texture{
+      data = {},
+      width = 0,
+      height = 0,
+    }
+  }
+
+  return Texture {
+    data = sm64.global.texture_data,
+    width = output.SM64_TEXTURE_WIDTH,
+    height = output.SM64_TEXTURE_HEIGHT,
+  }
+}
+
+Vec3 :: struct {
+  x: u32,
+  y: u32,
+  z: u32,
+}
+
+Vec2 :: struct {
+  x: u32,
+  y: u32,
+}
+
+Color :: struct {
+  r,g,b: f32,
+}
+
+LevelTriangle :: struct {
+  kind: Surface,
+  force: i16,
+  terrain: Terrain,
+  vertices: [3]Vec3,
+}
+
+MarioInputs :: struct {
+ camLookX, camLookZ:        f32,
+ stickX, stickY:            f32,
+ buttonA, buttonB, buttonZ: u8,
+}
+
+map_mario_inputs :: proc(inputs: MarioInputs) -> output.SM64MarioInputs {
+  return output.SM64MarioInputs {
+    camLookX = inputs.camLookX,
+    camLookZ = inputs.camLookZ,
+    stickX = inputs.stickX,
+    stickY = inputs.stickY,
+    buttonA = inputs.buttonA,
+    buttonB = inputs.buttonB,
+    buttonZ = inputs.buttonZ
+  }
+}
+
+MarioGeometry :: struct {
+  position: []Vec3,
+  normal: []Vec3,
+  color: []Color,
+  uv: []Vec2,
+  num_triangles: u16,
+}
+
+new_mario_geometry :: proc() -> MarioGeometry {
+  return MarioGeometry {}
+}
+
+mario_geometry_vertices :: proc(geometry: ^MarioGeometry) -> []MarioVertex {
+    count := geometry.num_triangles * 3
+    result: []MarioVertex = make([]MarioVertex, count, context.allocator)
+
+    for i in 0 ..< count {
+        result[i] = MarioVertex{
+            position = geometry.position[i],
+            normal   = geometry.normal[i],
+            color    = geometry.color[i],
+            uv       = geometry.uv[i],
+        }
+    }
+    return result
+}
+
+Mario :: struct {
+  id: i32,
+  geometry: MarioGeometry,
+}
+
+new_mario :: proc(id: i32) -> Mario {
+  geometry: MarioGeometry = MarioGeometry {}
+  return Mario {id,geometry}
+}
+
+tick :: proc(mario: ^Mario, input: MarioInputs) -> MarioState {
+    input_mapped := map_mario_inputs(input)
+
+    state: output.SM64MarioState = output.SM64MarioState{}
+    geometry: output.SM64MarioGeometryBuffers = output.SM64MarioGeometryBuffers{}
+
+    output.sm64_mario_tick(
+        mario.id,
+        &input_mapped,
+        &state,
+        &geometry
+    )
+
+    mario.geometry = sm64_geometry_buffers_to_geometry(geometry)
+
+    return map_mario_state(state)
+}
+
+drop_mario :: proc(mario: Mario) {
+  output.sm64_mario_delete(mario.id)
+}
+
+
+DynamicSurface :: struct {
+    id: u32,
+}
+
+new_dynamic_surface :: proc(id: u32) -> DynamicSurface {
+  return DynamicSurface {
+    id = id
+  }
+}
+
+transform_dynamic_surface :: proc(dynamic_surface: DynamicSurface, transform: SurfaceTransform) {
+  sm64_transform: output.SM64ObjectTransform = make_sm64_object_transform(transform)
+  output.sm64_surface_object_move(dynamic_surface.id,&sm64_transform)
+}
+
+drop_dynamic_surface :: proc(dynamic_surface: DynamicSurface) {
+  output.sm64_surface_object_delete(dynamic_surface.id)
+}
+
+SurfaceTransform :: struct {
+    position: Vec3,
+    rotation: Vec3,
+}
+
+make_sm64_object_transform :: proc(transform: SurfaceTransform) -> output.SM64ObjectTransform {
+  position: [3]f32 = [3]f32{f32(transform.position.x), f32(transform.position.y), f32(transform.position.z)}
+  rotation: [3]f32 = [3]f32{f32(transform.rotation.x), f32(transform.rotation.y), f32(transform.rotation.z)}
+    return output.SM64ObjectTransform{
+        position = position,
+        eulerRotation = rotation,
+    }
+}
+
+MarioState :: struct {
+  position: Vec3,
+  velocity: Vec3,
+  face_angle: f32,
+  health: i16,
+  action: u32,
+  flags: u32,
+  particle_flags: u32,
+  invincibility_timer: i16,
+}
+
+map_mario_state :: proc(state: output.SM64MarioState) -> MarioState {
+  return MarioState{
+    position = Vec3{
+      x = u32(state.position[0]),
+      y = u32(state.position[1]),
+      z = u32(state.position[2]),
+    },
+    velocity = Vec3{
+      x = u32(state.velocity[0]),
+      y = u32(state.velocity[1]),
+      z = u32(state.velocity[2]),
+    },
+    face_angle          = state.faceAngle,
+    health              = state.health,
+    action              = state.action,
+    flags               = state.flags,
+    particle_flags      = state.particleFlags,
+    invincibility_timer = state.invincTimer,
+  }
+}
+
+MarioVertex :: struct {
+  position: Vec3,
+  normal: Vec3,
+  color: Color,
+  uv: Vec2,
+}
+
+mario_vertex_triangles :: proc(geometry: ^MarioGeometry) -> [][3]MarioVertex {
+    count := geometry.num_triangles
+    result := make([][3]MarioVertex, count, context.allocator)
+
+    for i in 0 ..< count {
+        base_idx := i * 3
+
+        result[i][0] = MarioVertex{
+            position = geometry.position[base_idx],
+            normal   = geometry.normal[base_idx],
+            color    = geometry.color[base_idx],
+            uv       = geometry.uv[base_idx],
+        }
+        result[i][1] = MarioVertex{
+            position = geometry.position[base_idx + 1],
+            normal   = geometry.normal[base_idx + 1],
+            color    = geometry.color[base_idx + 1],
+            uv       = geometry.uv[base_idx + 1],
+        }
+        result[i][2] = MarioVertex{
+            position = geometry.position[base_idx + 2],
+            normal   = geometry.normal[base_idx + 2],
+            color    = geometry.color[base_idx + 2],
+            uv       = geometry.uv[base_idx + 2],
+        }
+    }
+
+    return result
+}
+
+get_mario_vertice_positions :: proc(geometry: MarioGeometry) -> []Vec3 {
+    count := int(geometry.num_triangles) * 3
+    return geometry.position[:count]
+}
+
+get_mario_vertice_normals :: proc(geometry: MarioGeometry) -> []Vec3 {
+    count := int(geometry.num_triangles) * 3
+    return geometry.normal[:count]
+}
+
+get_mario_vertice_colors :: proc(geometry: MarioGeometry) -> []Color {
+    count := int(geometry.num_triangles) * 3
+    return geometry.color[:count]
+}
+
+get_mario_vertice_uvs :: proc(geometry: MarioGeometry) -> []Vec2 {
+    count := int(geometry.num_triangles) * 3
+    return geometry.uv[:count]
+}
+
+sm64_geometry_buffers_to_geometry :: proc(buffers: output.SM64MarioGeometryBuffers) -> MarioGeometry {
+    triangle_count := int(buffers.numTrianglesUsed)
+    vertex_count := triangle_count * 3
+
+    position_slice := ([]f32){buffers.position^, f32(vertex_count * 3)}
+    normal_slice   := ([]f32){buffers.normal^, f32(vertex_count * 3)}
+    color_slice    := ([]f32){buffers.color^, f32(vertex_count * 3)}
+    uv_slice       := ([]f32){buffers.uv^, f32(vertex_count * 2)}
+
+    positions := make([]Vec3, vertex_count, context.allocator)
+    normals   := make([]Vec3, vertex_count, context.allocator)
+    colors    := make([]Color, vertex_count, context.allocator)
+    uvs       := make([]Vec2, vertex_count, context.allocator)
+
+    for i in 0..<vertex_count {
+        positions[i] = Vec3{
+            x = u32(position_slice[i*3 + 0]),
+            y = u32(position_slice[i*3 + 1]),
+            z = u32(position_slice[i*3 + 2]),
+        }
+        normals[i] = Vec3{
+            x = u32(normal_slice[i*3 + 0]),
+            y = u32(normal_slice[i*3 + 1]),
+            z = u32(normal_slice[i*3 + 2]),
+        }
+        colors[i] = Color{
+            r = color_slice[i*3 + 0],
+            g = color_slice[i*3 + 1],
+            b = color_slice[i*3 + 2],
+        }
+        uvs[i] = Vec2{
+            x = u32(uv_slice[i*2 + 0]),
+            y = u32(uv_slice[i*2 + 1]),
+        }
+    }
+
+    return MarioGeometry{
+        position      = positions,
+        normal        = normals,
+        color         = colors,
+        uv            = uvs,
+        num_triangles = buffers.numTrianglesUsed,
+    }
+}
+
+
+
+Terrain :: enum u16 {
+    Grass  = 0x0000,
+    Stone  = 0x0001,
+    Snow   = 0x0002,
+    Sand   = 0x0003,
+    Spooky = 0x0004,
+    Water  = 0x0005,
+    Slide  = 0x0006,
+    Mask   = 0x0007,
+}
+
+Surface :: enum u16 {
+    Default             = 0x0000,
+    Burning             = 0x0001,
+    _0004               = 0x0004,
+    Hangable            = 0x0005,
+    Slow                = 0x0009,
+    DeathPlane          = 0x000A,
+    CloseCamera         = 0x000B,
+    Water               = 0x000D,
+    FlowingWater        = 0x000E,
+    Intangible          = 0x0012,
+    VerySlippery        = 0x0013,
+    Slippery            = 0x0014,
+    NotSlippery         = 0x0015,
+    TtmVines            = 0x0016,
+    MgrMusic            = 0x001A,
+    InstantWarp1b       = 0x001B,
+    InstantWarp1c       = 0x001C,
+    InstantWarp1d       = 0x001D,
+    InstantWarp1e       = 0x001E,
+    ShallowQuicksand    = 0x0021,
+    DeepQuicksand       = 0x0022,
+    InstantQuicksand    = 0x0023,
+    DeepMovingQuicksand = 0x0024,
+    ShallowMovingQuicksand = 0x0025,
+    Quicksand           = 0x0026,
+    MovingQuicksand     = 0x0027,
+    WallMisc            = 0x0028,
+    NoiseDefault        = 0x0029,
+    NoiseSlippery       = 0x002A,
+    HorizontalWind      = 0x002C,
+    InstantMovingQuicksand = 0x002D,
+    Ice                 = 0x002E,
+    LookUpWarp          = 0x002F,
+    Hard                = 0x0030,
+    Warp                = 0x0032,
+    TimerStart          = 0x0033,
+    TimerEnd            = 0x0034,
+    HardSlippery        = 0x0035,
+    HardVerySlippery    = 0x0036,
+    HardNotSlippery     = 0x0037,
+    VerticalWind        = 0x0038,
+    BossFightCamera     = 0x0065,
+    CameraFreeRoam      = 0x0066,
+    Thi3Wallkick        = 0x0068,
+    CameraPlatform      = 0x0069,
+    CameraMiddle        = 0x006E,
+    CameraRotateRight   = 0x006F,
+    CameraRotateLeft    = 0x0070,
+    CameraBoundary      = 0x0072,
+    NoiseVerySlippery73 = 0x0073,
+    NoiseVerySlippery74 = 0x0074,
+    NoiseVerySlippery   = 0x0075,
+    NoCamCollision      = 0x0076,
+    NoCamCollision77    = 0x0077,
+    NoCamColVerySlippery= 0x0078,
+    NoCamColSlippery    = 0x0079,
+    Switch              = 0x007A,
+    VanishCapWalls      = 0x007B,
+    PaintingWobbleA6    = 0x00A6,
+    PaintingWobbleA7    = 0x00A7,
+    PaintingWobbleA8    = 0x00A8,
+    PaintingWobbleA9    = 0x00A9,
+    PaintingWobbleAA    = 0x00AA,
+    PaintingWobbleAB    = 0x00AB,
+    PaintingWobbleAC    = 0x00AC,
+    PaintingWobbleAD    = 0x00AD,
+    PaintingWobbleAE    = 0x00AE,
+    PaintingWobbleAF    = 0x00AF,
+    PaintingWobbleB0    = 0x00B0,
+    PaintingWobbleB1    = 0x00B1,
+    PaintingWobbleB2    = 0x00B2,
+    PaintingWobbleB3    = 0x00B3,
+    PaintingWobbleB4    = 0x00B4,
+    PaintingWobbleB5    = 0x00B5,
+    PaintingWobbleB6    = 0x00B6,
+    PaintingWobbleB7    = 0x00B7,
+    PaintingWobbleB8    = 0x00B8,
+    PaintingWobbleB9    = 0x00B9,
+    PaintingWobbleBA    = 0x00BA,
+    PaintingWobbleBB    = 0x00BB,
+    PaintingWobbleBC    = 0x00BC,
+    PaintingWobbleBD    = 0x00BD,
+    PaintingWobbleBE    = 0x00BE,
+    PaintingWobbleBF    = 0x00BF,
+    PaintingWobbleC0    = 0x00C0,
+    PaintingWobbleC1    = 0x00C1,
+    PaintingWobbleC2    = 0x00C2,
+    PaintingWobbleC3    = 0x00C3,
+    PaintingWobbleC4    = 0x00C4,
+    PaintingWobbleC5    = 0x00C5,
+    PaintingWobbleC6    = 0x00C6,
+    PaintingWobbleC7    = 0x00C7,
+    PaintingWobbleC8    = 0x00C8,
+    PaintingWobbleC9    = 0x00C9,
+    PaintingWobbleCA    = 0x00CA,
+    PaintingWobbleCB    = 0x00CB,
+    PaintingWobbleCC    = 0x00CC,
+    PaintingWobbleCD    = 0x00CD,
+    PaintingWobbleCE    = 0x00CE,
+    PaintingWobbleCF    = 0x00CF,
+    PaintingWobbleD0    = 0x00D0,
+    PaintingWobbleD1    = 0x00D1,
+    PaintingWobbleD2    = 0x00D2,
+    PaintingWarpD3      = 0x00D3,
+    PaintingWarpD4      = 0x00D4,
+    PaintingWarpD5      = 0x00D5,
+    PaintingWarpD6      = 0x00D6,
+    PaintingWarpD7      = 0x00D7,
+    PaintingWarpD8      = 0x00D8,
+    PaintingWarpD9      = 0x00D9,
+    PaintingWarpDA      = 0x00DA,
+    PaintingWarpDB      = 0x00DB,
+    PaintingWarpDC      = 0x00DC,
+    PaintingWarpDD      = 0x00DD,
+    PaintingWarpDE      = 0x00DE,
+    PaintingWarpDF      = 0x00DF,
+    PaintingWarpE0      = 0x00E0,
+    PaintingWarpE1      = 0x00E1,
+    PaintingWarpE2      = 0x00E2,
+    PaintingWarpE3      = 0x00E3,
+    PaintingWarpE4      = 0x00E4,
+    PaintingWarpE5      = 0x00E5,
+    PaintingWarpE6      = 0x00E6,
+    PaintingWarpE7      = 0x00E7,
+    PaintingWarpE8      = 0x00E8,
+    PaintingWarpE9      = 0x00E9,
+    PaintingWarpEA      = 0x00EA,
+    PaintingWarpEB      = 0x00EB,
+    PaintingWarpEC      = 0x00EC,
+    PaintingWarpED      = 0x00ED,
+    PaintingWarpEE      = 0x00EE,
+    PaintingWarpEF      = 0x00EF,
+    PaintingWarpF0      = 0x00F0,
+    PaintingWarpF1      = 0x00F1,
+    PaintingWarpF2      = 0x00F2,
+    PaintingWarpF3      = 0x00F3,
+    TtcPainting1        = 0x00F4,
+    TtcPainting2        = 0x00F5,
+    TtcPainting3        = 0x00F6,
+    PaintingWarpF7      = 0x00F7,
+    PaintingWarpF8      = 0x00F8,
+    PaintingWarpF9      = 0x00F9,
+    PaintingWarpFA      = 0x00FA,
+    PaintingWarpFB      = 0x00FB,
+    PaintingWarpFC      = 0x00FC,
+    WobblingWarp        = 0x00FD,
+    Trapdoor            = 0x00FF,
+}
+
