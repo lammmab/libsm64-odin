@@ -1,9 +1,23 @@
 package SM64
 
+/*
+
+This project was made by lammmab!
+libsm64 extracts the logic for the movement and control of Mario from the Super Mario
+64 ROM providing a interface to implement your own Mario in your own 3D engine.
+
+**Note:** You must provide your own copy of a Super Mario 64 (USA) ROM,
+the correct ROM has a SHA1 hash of '9bef1128717f958171a4afac3ed78ee2bb4e86ce'.
+
+*/
+
 import "output"
 import "core:os"
 import "core:fmt"
 import "core:crypto/legacy/sha1"
+import "core:strings"
+import "core:mem"
+import "core:strconv"
 
 VALID_HASH: string : "9bef1128717f958171a4afac3ed78ee2bb4e86ce"
 
@@ -43,7 +57,7 @@ Sm64 :: struct {
   global: Sm64Inner,
 }
 
-new :: proc(filepath: string) -> (Sm64, Error) {
+new_sm64 :: proc(filepath: string) -> (Sm64, Error) {
     data, ok := os.read_entire_file(filepath, context.allocator)
     if !ok {
         return Sm64{}, Error.OS_Error
@@ -94,14 +108,14 @@ sm64_mario_texture_atlas :: proc(sm64: Sm64) -> Texture {
 }
 
 Vec3 :: struct {
-  x: u32,
-  y: u32,
-  z: u32,
+  x: f32,
+  y: f32,
+  z: f32,
 }
 
 Vec2 :: struct {
-  x: u32,
-  y: u32,
+  x: f32,
+  y: f32,
 }
 
 Color :: struct {
@@ -113,6 +127,34 @@ LevelTriangle :: struct {
   force: i16,
   terrain: Terrain,
   vertices: [3]Vec3,
+}
+
+load_static_surfaces :: proc(level_geometry: []LevelTriangle) {
+    native_surfaces := convert_to_sm64_surfaces(level_geometry)
+    output.sm64_static_surfaces_load(&native_surfaces[0], u32(len(native_surfaces)))
+}
+
+convert_to_sm64_surfaces :: proc(level_geometry: []LevelTriangle) -> []output.SM64Surface {
+    count := len(level_geometry)
+    native_surfaces := make([]output.SM64Surface, count, context.allocator)
+
+    i: int = 0
+    for tri in level_geometry {
+        native_surfaces[i] = output.SM64Surface{
+            type = i16(tri.kind),
+            force = tri.force,
+            terrain = u16(tri.terrain),
+            vertices = [3][3]i32{
+              [3]i32{ i32(tri.vertices[0].x), i32(tri.vertices[0].y), i32(tri.vertices[0].z) },
+              [3]i32{ i32(tri.vertices[1].x), i32(tri.vertices[1].y), i32(tri.vertices[1].z) },
+              [3]i32{ i32(tri.vertices[2].x), i32(tri.vertices[2].y), i32(tri.vertices[2].z) },
+          } 
+        }
+        i += 1
+    }
+    i = 0
+
+    return native_surfaces
 }
 
 MarioInputs :: struct {
@@ -133,7 +175,7 @@ map_mario_inputs :: proc(inputs: MarioInputs) -> output.SM64MarioInputs {
   }
 }
 
-MarioGeometry :: struct {
+MarioGeometry :: struct { 
   position: []Vec3,
   normal: []Vec3,
   color: []Color,
@@ -142,8 +184,29 @@ MarioGeometry :: struct {
 }
 
 new_mario_geometry :: proc() -> MarioGeometry {
-  return MarioGeometry {}
+    max_triangles := output.SM64_GEO_MAX_TRIANGLES
+
+    positions := make([]Vec3, max_triangles * 3, context.allocator)
+    normals   := make([]Vec3, max_triangles * 3, context.allocator)
+    colors    := make([]Color, max_triangles * 3, context.allocator)
+    uvs       := make([]Vec2, max_triangles * 3, context.allocator)
+
+    for i := 0; i < len(positions); i += 1 {
+      positions[i] = Vec3{0,0,0}
+    }
+    for i := 0; i < len(normals); i += 1 {
+      normals[i] = Vec3{0,0,0}
+    }
+
+    return MarioGeometry{
+        position = positions,
+        normal = normals,
+        color = colors,
+        uv = uvs,
+        num_triangles = 0,
+    }
 }
+
 
 mario_geometry_vertices :: proc(geometry: ^MarioGeometry) -> []MarioVertex {
     count := geometry.num_triangles * 3
@@ -165,27 +228,57 @@ Mario :: struct {
   geometry: MarioGeometry,
 }
 
-new_mario :: proc(id: i32) -> Mario {
-  geometry: MarioGeometry = MarioGeometry {}
-  return Mario {id,geometry}
+create_mario :: proc(x: f32, y: f32, z: f32) -> (Mario, Error) {
+    mario_id: i32 = output.sm64_mario_create(x, y, z)
+    if mario_id < 0 {
+        return Mario{}, Error.InvalidMarioPosition
+    }
+    return Mario {id=mario_id, geometry=new_mario_geometry()}, Error.None
+}
+
+SM64GeometryWrapper :: struct {
+    positions: []f32,
+    normals: []f32,
+    colors: []f32,
+    uvs: []f32,
+    geom: output.SM64MarioGeometryBuffers,
+}
+
+new_sm64mariogeometrybuffers :: proc() -> ^SM64GeometryWrapper {
+    max_triangles := output.SM64_GEO_MAX_TRIANGLES
+    max_vertices := int(max_triangles) * 3
+    floats_per_vertex := 3 
+
+    wrapper := new(SM64GeometryWrapper, context.allocator)
+    wrapper.positions = make([]f32, max_vertices * floats_per_vertex, context.allocator)
+    wrapper.normals   = make([]f32, max_vertices * floats_per_vertex, context.allocator)
+    wrapper.colors    = make([]f32, max_vertices * floats_per_vertex, context.allocator)
+    wrapper.uvs       = make([]f32, max_vertices * 2, context.allocator)
+
+    wrapper.geom.position = &wrapper.positions[0]
+    wrapper.geom.normal   = &wrapper.normals[0]
+    wrapper.geom.color    = &wrapper.colors[0]
+    wrapper.geom.uv       = &wrapper.uvs[0]
+    wrapper.geom.numTrianglesUsed = 0
+
+    return wrapper
 }
 
 tick :: proc(mario: ^Mario, input: MarioInputs) -> MarioState {
     input_mapped := map_mario_inputs(input)
-
     state: output.SM64MarioState = output.SM64MarioState{}
-    geometry: output.SM64MarioGeometryBuffers = output.SM64MarioGeometryBuffers{}
-
+    geometry_wrapper := new_sm64mariogeometrybuffers()
+    geometry := &geometry_wrapper.geom
     output.sm64_mario_tick(
         mario.id,
         &input_mapped,
         &state,
-        &geometry
+        geometry
     )
 
-    mario.geometry = sm64_geometry_buffers_to_geometry(geometry)
-
-    return map_mario_state(state)
+    mario.geometry = sm64_geometry_buffers_to_geometry(geometry^)
+    result := map_mario_state(state)
+    return result
 }
 
 drop_mario :: proc(mario: Mario) {
@@ -237,17 +330,49 @@ MarioState :: struct {
   invincibility_timer: i16,
 }
 
+int_to_string :: proc(i: int, allocator: mem.Allocator) -> string {
+    buf: [32]u8
+    slice := strconv.append_int(buf[:], i64(i), 10)
+    result, _ := strings.clone(slice, allocator)
+    return result
+}
+
+f32_to_string_buffered :: proc(f: f32) -> string {
+    result := fmt.aprint("", "", f64(f))
+    return result
+}
+
+concat_many :: proc(parts: []string) -> string {
+    result, err := strings.concatenate(parts, context.allocator)
+    if err != nil {
+        panic("concat_many failed")
+    }
+    return result
+}
+
+format_state :: proc(state: MarioState) -> string {
+    parts := []string{
+        "Action: ", int_to_string(int(state.action), context.allocator), "\n",
+        "Health: ", int_to_string(int(state.health), context.allocator), "\n",
+        "Position: (",
+        f32_to_string_buffered(state.position.x), ", ",
+        f32_to_string_buffered(state.position.y), ", ",
+        f32_to_string_buffered(state.position.z), ")\n",
+    }
+    return concat_many(parts)
+}
+
 map_mario_state :: proc(state: output.SM64MarioState) -> MarioState {
   return MarioState{
     position = Vec3{
-      x = u32(state.position[0]),
-      y = u32(state.position[1]),
-      z = u32(state.position[2]),
+      x = state.position[0],
+      y = state.position[1],
+      z = state.position[2],
     },
     velocity = Vec3{
-      x = u32(state.velocity[0]),
-      y = u32(state.velocity[1]),
-      z = u32(state.velocity[2]),
+      x = state.velocity[0],
+      y = state.velocity[1],
+      z = state.velocity[2],
     },
     face_angle          = state.faceAngle,
     health              = state.health,
@@ -319,37 +444,10 @@ sm64_geometry_buffers_to_geometry :: proc(buffers: output.SM64MarioGeometryBuffe
     triangle_count := int(buffers.numTrianglesUsed)
     vertex_count := triangle_count * 3
 
-    position_slice := ([]f32){buffers.position^, f32(vertex_count * 3)}
-    normal_slice   := ([]f32){buffers.normal^, f32(vertex_count * 3)}
-    color_slice    := ([]f32){buffers.color^, f32(vertex_count * 3)}
-    uv_slice       := ([]f32){buffers.uv^, f32(vertex_count * 2)}
-
-    positions := make([]Vec3, vertex_count, context.allocator)
-    normals   := make([]Vec3, vertex_count, context.allocator)
-    colors    := make([]Color, vertex_count, context.allocator)
-    uvs       := make([]Vec2, vertex_count, context.allocator)
-
-    for i in 0..<vertex_count {
-        positions[i] = Vec3{
-            x = u32(position_slice[i*3 + 0]),
-            y = u32(position_slice[i*3 + 1]),
-            z = u32(position_slice[i*3 + 2]),
-        }
-        normals[i] = Vec3{
-            x = u32(normal_slice[i*3 + 0]),
-            y = u32(normal_slice[i*3 + 1]),
-            z = u32(normal_slice[i*3 + 2]),
-        }
-        colors[i] = Color{
-            r = color_slice[i*3 + 0],
-            g = color_slice[i*3 + 1],
-            b = color_slice[i*3 + 2],
-        }
-        uvs[i] = Vec2{
-            x = u32(uv_slice[i*2 + 0]),
-            y = u32(uv_slice[i*2 + 1]),
-        }
-    }
+    positions := (^[^]Vec3)(buffers.position)[:vertex_count]
+    normals   := (^[^]Vec3)(buffers.normal)[:vertex_count]
+    colors    := (^[^]Color)(buffers.color)[:vertex_count]
+    uvs       := (^[^]Vec2)(buffers.uv)[:vertex_count]  // or [:triangle_count * 3] depending on source format
 
     return MarioGeometry{
         position      = positions,
@@ -359,8 +457,6 @@ sm64_geometry_buffers_to_geometry :: proc(buffers: output.SM64MarioGeometryBuffe
         num_triangles = buffers.numTrianglesUsed,
     }
 }
-
-
 
 Terrain :: enum u16 {
     Grass  = 0x0000,
