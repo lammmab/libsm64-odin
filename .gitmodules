@@ -1,0 +1,6 @@
+[submodule "input/libsm64"]
+	path = input/libsm64
+	url = https://github.com/libsm64/libsm64.git
+[submodule "bindgen"]
+	path = bindgen
+	url = https://github.com/karl-zylinski/odin-c-bindgen
