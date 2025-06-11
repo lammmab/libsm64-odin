@@ -1,0 +1,6 @@
+output/
+
+*.lib
+*.dll
+
+*.exe

@@ -1,0 +1,40 @@
+inputs = [
+	"input"
+]
+
+ignore_inputs = []
+
+output_folder = "output"
+
+remove_type_prefix = ""
+remove_macro_prefix = ""
+remove_function_prefix = ""
+
+required_prefix = ""
+
+force_ada_case_types = false
+
+import_lib = "sm64.lib"
+
+imports_file = ""
+
+package_name = "sm64"
+
+rename = {}
+
+bit_setify = {}
+
+type_overrides = {}
+
+struct_field_overrides = {}
+
+procedure_type_overrides = {}
+
+inject_before = {}
+
+opaque_types = []
+
+clang_include_paths = []
+
+debug_dump_json_ast = false
+debug_dump_macros = false
