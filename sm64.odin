@@ -282,11 +282,11 @@ new_sm64mariogeometrybuffers :: proc() -> ^SM64GeometryWrapper {
     max_vertices := int(max_triangles) * 3
     floats_per_vertex := 3 
 
-    wrapper := new(SM64GeometryWrapper, context.allocator)
-    wrapper.positions = make([]f32, max_vertices * floats_per_vertex, context.allocator)
-    wrapper.normals   = make([]f32, max_vertices * floats_per_vertex, context.allocator)
-    wrapper.colors    = make([]f32, max_vertices * floats_per_vertex, context.allocator)
-    wrapper.uvs       = make([]f32, max_vertices * 2, context.allocator)
+    wrapper := new(SM64GeometryWrapper, context.temp_allocator)
+    wrapper.positions = make([]f32, max_vertices * floats_per_vertex, context.temp_allocator)
+    wrapper.normals   = make([]f32, max_vertices * floats_per_vertex, context.temp_allocator)
+    wrapper.colors    = make([]f32, max_vertices * floats_per_vertex, context.temp_allocator)
+    wrapper.uvs       = make([]f32, max_vertices * 2, context.temp_allocator)
 
     wrapper.geom.position = &wrapper.positions[0]
     wrapper.geom.normal   = &wrapper.normals[0]
@@ -466,10 +466,10 @@ get_mario_vertice_uvs :: proc(geometry: MarioGeometry) -> []Vec2 {
 sm64_geometry_buffers_to_geometry :: proc(buffers: output.SM64MarioGeometryBuffers) -> MarioGeometry {
     triangle_count := int(buffers.numTrianglesUsed)
     vertex_count := triangle_count * 3
-    positions := make([]Vec3, vertex_count, context.allocator)
-    normals   := make([]Vec3, vertex_count, context.allocator)
-    colors    := make([]Color, vertex_count, context.allocator)
-    uvs       := make([]Vec2, vertex_count, context.allocator)
+    positions := make([]Vec3, vertex_count, context.temp_allocator)
+    normals   := make([]Vec3, vertex_count, context.temp_allocator)
+    colors    := make([]Color, vertex_count, context.temp_allocator)
+    uvs       := make([]Vec2, vertex_count, context.temp_allocator)
 
     mem.copy(&positions[0], buffers.position, vertex_count * size_of(Vec3))
     mem.copy(&normals[0],   buffers.normal,   vertex_count * size_of(Vec3))
