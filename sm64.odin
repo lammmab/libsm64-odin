@@ -18,6 +18,7 @@ import "core:crypto/legacy/sha1"
 import "core:strings"
 import "core:mem"
 import "core:strconv"
+import "core:encoding/hex"
 
 VALID_HASH: string : "9bef1128717f958171a4afac3ed78ee2bb4e86ce"
 
@@ -57,7 +58,40 @@ Sm64 :: struct {
   global: Sm64Inner,
 }
 
+
+compute_sha1 :: proc(filepath: string) -> (h: string, success: bool) {
+    data, ok := os.read_entire_file(filepath)
+    if !ok {
+        return "", false
+    }
+
+    ctx: sha1.Context
+    sha1.init(&ctx)
+    sha1.update(&ctx, data)
+
+    digest := [sha1.DIGEST_SIZE]u8{}
+    sha1.final(&ctx, digest[:])
+
+    hex_data := hex.encode(digest[:])
+    hex_string := string(hex_data)
+
+    return hex_string, true
+}
+
+validate_hash :: proc(filepath: string) -> bool {
+    computed_hash, success := compute_sha1(filepath)
+    if !success {
+        return false
+    }
+    is_valid := (computed_hash == VALID_HASH)
+    return is_valid
+}
+
+
 new_sm64 :: proc(filepath: string) -> (Sm64, Error) {
+    if !validate_hash(filepath) {
+        return Sm64{}, Error.InvalidRom
+    }
     data, ok := os.read_entire_file(filepath, context.allocator)
     if !ok {
         return Sm64{}, Error.OS_Error
@@ -337,9 +371,8 @@ int_to_string :: proc(i: int, allocator: mem.Allocator) -> string {
     return result
 }
 
-f32_to_string_buffered :: proc(f: f32) -> string {
-    result := fmt.aprint("", "", f64(f))
-    return result
+format_pos :: proc(state: MarioState, allocator := context.temp_allocator) -> string {
+    return fmt.aprintfln("Position: (%v, %v, %v)", state.position.x, state.position.y, state.position.z, allocator=allocator)
 }
 
 concat_many :: proc(parts: []string) -> string {
@@ -354,10 +387,7 @@ format_state :: proc(state: MarioState) -> string {
     parts := []string{
         "Action: ", int_to_string(int(state.action), context.allocator), "\n",
         "Health: ", int_to_string(int(state.health), context.allocator), "\n",
-        "Position: (",
-        f32_to_string_buffered(state.position.x), ", ",
-        f32_to_string_buffered(state.position.y), ", ",
-        f32_to_string_buffered(state.position.z), ")\n",
+        format_pos(state),
     }
     return concat_many(parts)
 }

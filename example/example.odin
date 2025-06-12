@@ -6,7 +6,7 @@ import "core:fmt"
 rompath: string : "./baserom.z64"
 
 main :: proc() {
-  sm64,sm64_err := SM64.new_sm64(rompath) // there is currently no SHA1 validation so if its not correct then idek what will happen so make sure its correct
+  sm64,sm64_err := SM64.new_sm64(rompath)
   if sm64_err != SM64.Error.None {
     fmt.println(SM64.error_to_string(sm64_err))
     for true {} 
@@ -33,6 +33,7 @@ main :: proc() {
   for i in 0..<10 {
     state := SM64.tick(&mario, input)
     fmt.println(SM64.format_state(state))
+    free_all(context.temp_allocator) // make sure you free the strings everytime you call format_state once you're done using them (after fmt.println)
   }
 
   fmt.println("Simulation ended. Press Ctrl+C to exit.")
