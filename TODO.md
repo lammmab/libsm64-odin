@@ -1,4 +1,4 @@
 # ✅ TODO
-* Add SHA1 Checksum
-* Map action floats -> action enum
-* Send out sounds
+
+* Create examples of it being used in raylib
+* Hook up sound

@@ -241,7 +241,6 @@ new_mario_geometry :: proc() -> MarioGeometry {
     }
 }
 
-
 mario_geometry_vertices :: proc(geometry: ^MarioGeometry) -> []MarioVertex {
     count := geometry.num_triangles * 3
     result: []MarioVertex = make([]MarioVertex, count, context.temp_allocator)
@@ -283,11 +282,11 @@ new_sm64mariogeometrybuffers :: proc() -> ^SM64GeometryWrapper {
     max_vertices := int(max_triangles) * 3
     floats_per_vertex := 3 
 
-    wrapper := new(SM64GeometryWrapper, context.temp_allocator)
-    wrapper.positions = make([]f32, max_vertices * floats_per_vertex, context.temp_allocator)
-    wrapper.normals   = make([]f32, max_vertices * floats_per_vertex, context.temp_allocator)
-    wrapper.colors    = make([]f32, max_vertices * floats_per_vertex, context.temp_allocator)
-    wrapper.uvs       = make([]f32, max_vertices * 2, context.temp_allocator)
+    wrapper := new(SM64GeometryWrapper, context.allocator)
+    wrapper.positions = make([]f32, max_vertices * floats_per_vertex, context.allocator)
+    wrapper.normals   = make([]f32, max_vertices * floats_per_vertex, context.allocator)
+    wrapper.colors    = make([]f32, max_vertices * floats_per_vertex, context.allocator)
+    wrapper.uvs       = make([]f32, max_vertices * 2, context.allocator)
 
     wrapper.geom.position = &wrapper.positions[0]
     wrapper.geom.normal   = &wrapper.normals[0]
@@ -302,15 +301,9 @@ tick :: proc(mario: ^Mario, input: MarioInputs) -> MarioState {
     input_mapped := map_mario_inputs(input)
     state: output.SM64MarioState = output.SM64MarioState{}
     geometry_wrapper := new_sm64mariogeometrybuffers()
-    geometry := &geometry_wrapper.geom
-    output.sm64_mario_tick(
-        mario.id,
-        &input_mapped,
-        &state,
-        geometry
-    )
+    output.sm64_mario_tick(mario.id, &input_mapped, &state, &geometry_wrapper.geom)
 
-    mario.geometry = sm64_geometry_buffers_to_geometry(geometry^)
+    mario.geometry = sm64_geometry_buffers_to_geometry(geometry_wrapper.geom)
     result := map_mario_state(state)
     return result
 }
@@ -473,11 +466,15 @@ get_mario_vertice_uvs :: proc(geometry: MarioGeometry) -> []Vec2 {
 sm64_geometry_buffers_to_geometry :: proc(buffers: output.SM64MarioGeometryBuffers) -> MarioGeometry {
     triangle_count := int(buffers.numTrianglesUsed)
     vertex_count := triangle_count * 3
+    positions := make([]Vec3, vertex_count, context.allocator)
+    normals   := make([]Vec3, vertex_count, context.allocator)
+    colors    := make([]Color, vertex_count, context.allocator)
+    uvs       := make([]Vec2, vertex_count, context.allocator)
 
-    positions := (^[^]Vec3)(buffers.position)[:vertex_count]
-    normals   := (^[^]Vec3)(buffers.normal)[:vertex_count]
-    colors    := (^[^]Color)(buffers.color)[:vertex_count]
-    uvs       := (^[^]Vec2)(buffers.uv)[:vertex_count]  // or [:triangle_count * 3] depending on source format
+    mem.copy(&positions[0], buffers.position, vertex_count * size_of(Vec3))
+    mem.copy(&normals[0],   buffers.normal,   vertex_count * size_of(Vec3))
+    mem.copy(&colors[0],    buffers.color,    vertex_count * size_of(Color))
+    mem.copy(&uvs[0],       buffers.uv,       vertex_count * size_of(Vec2))
 
     return MarioGeometry{
         position      = positions,
@@ -487,6 +484,7 @@ sm64_geometry_buffers_to_geometry :: proc(buffers: output.SM64MarioGeometryBuffe
         num_triangles = buffers.numTrianglesUsed,
     }
 }
+
 
 Terrain :: enum u16 {
     Grass  = 0x0000,

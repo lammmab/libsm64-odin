@@ -1,7 +1,7 @@
 # libsm64-odin
 A lightweight wrapper for libsm64 in Odin, created by lammmab.
 # NOTE: PLEASE EXPECT SOME BUGS, IF SO YOU CAN POP IN SM64.ODIN AND FIDDLE AROUND, OTHERWISE OPEN AN ISSUE AND I'LL GET TO IT
-# NOTE: THERE IS CURRENTLY A BUG WHERE IT SEGFAULTS IF YOU TRY TO ACCESS MARIO'S GEOMETRY, THIS BUG WILL BE CURBED SOON AND MARIO WILL BE RENDERING !
+
 # 🛠️ Building
 * Step 1: Clone the repo with submodules:
  ```git clone --recursive https://github.com/lammmab/libsm64-odin```
