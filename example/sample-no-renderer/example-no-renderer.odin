@@ -1,6 +1,6 @@
 package example
 
-import SM64 "../"
+import SM64 "../../"
 import "core:fmt"
 import "core:time"
 
