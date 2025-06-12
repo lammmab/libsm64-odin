@@ -19,9 +19,9 @@ Grab the released, development ready copy from the releases page!
 * MUST HAVE A ROM IN THE DIRECTORY WITH YOUR EXECUTABLE, ASWELL AS sm64.dll
 * import sm64.odin in your project, must also include output/libsm64.odin.
 * VERY IMPORTANT NOTE: YOU **MUST** FREE_ALL(CONTEXT.ALLOCATOR) & FREE_ALL(CONTEXT.TEMP_ALLOCATOR) AT THE END OF EACH FRAME, OR ELSE YOU WILL MEM LEAK!
-* Check out [this example] to see how the project works
+* Check out [these examples] to see how the project works
 
-[this example]: https://github.com/lammmab/libsm64-odin/tree/main/example/example.odin
+[these examples]: https://github.com/lammmab/libsm64-odin/blob/main/example
 [these]: https://github.com/lammmab/libsm64-odin/blob/main/DLL.md
-[libsm64]: https://github.com/libsm64/libsm64/tree/2195849aba5051acf97ae5d39d89135cd90b34b8
-[odin c bindgen]: https://github.com/karl-zylinski/odin-c-bindgen/blob/46762d53bbadcddbd8c04be52d049b7833d021b5/README.md
+[libsm64]: https://github.com/libsm64/libsm64/tree/
+[odin c bindgen]: https://github.com/karl-zylinski/odin-c-bindgen/
