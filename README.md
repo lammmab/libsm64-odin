@@ -8,6 +8,7 @@ A lightweight wrapper for libsm64 in Odin, created by lammmab.
 * Step 3: Setup [libsm64], and get it to output the dll
 * Step 4: Convert the dll to a .lib file (follow [these] instructions), and place it in the input folder
 * Step 5: Run this in the root folder to output libsm64.odin:
+* Step 6: Place the .dll in the directory with your odin file
  ```bindgen bindgen.sjson```
 
 # ❌ Don't want to build?
