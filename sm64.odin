@@ -92,12 +92,12 @@ new_sm64 :: proc(filepath: string) -> (Sm64, Error) {
     if !validate_hash(filepath) {
         return Sm64{}, Error.InvalidRom
     }
-    data, ok := os.read_entire_file(filepath, context.allocator)
+    data, ok := os.read_entire_file(filepath, context.temp_allocator)
     if !ok {
         return Sm64{}, Error.OS_Error
     }
 
-    SM64.texture_data = make_slice([]u8, output.SM64_TEXTURE_WIDTH * output.SM64_TEXTURE_HEIGHT * 4, context.allocator)
+    SM64.texture_data = make_slice([]u8, output.SM64_TEXTURE_WIDTH * output.SM64_TEXTURE_HEIGHT * 4, context.temp_allocator)
     SM64.rom_data = data
 
     rom_ptr: ^u8
@@ -170,7 +170,7 @@ load_static_surfaces :: proc(level_geometry: []LevelTriangle) {
 
 convert_to_sm64_surfaces :: proc(level_geometry: []LevelTriangle) -> []output.SM64Surface {
     count := len(level_geometry)
-    native_surfaces := make([]output.SM64Surface, count, context.allocator)
+    native_surfaces := make([]output.SM64Surface, count, context.temp_allocator)
 
     i: int = 0
     for tri in level_geometry {
@@ -220,10 +220,10 @@ MarioGeometry :: struct {
 new_mario_geometry :: proc() -> MarioGeometry {
     max_triangles := output.SM64_GEO_MAX_TRIANGLES
 
-    positions := make([]Vec3, max_triangles * 3, context.allocator)
-    normals   := make([]Vec3, max_triangles * 3, context.allocator)
-    colors    := make([]Color, max_triangles * 3, context.allocator)
-    uvs       := make([]Vec2, max_triangles * 3, context.allocator)
+    positions := make([]Vec3, max_triangles * 3, context.temp_allocator)
+    normals   := make([]Vec3, max_triangles * 3, context.temp_allocator)
+    colors    := make([]Color, max_triangles * 3, context.temp_allocator)
+    uvs       := make([]Vec2, max_triangles * 3, context.temp_allocator)
 
     for i := 0; i < len(positions); i += 1 {
       positions[i] = Vec3{0,0,0}
@@ -244,7 +244,7 @@ new_mario_geometry :: proc() -> MarioGeometry {
 
 mario_geometry_vertices :: proc(geometry: ^MarioGeometry) -> []MarioVertex {
     count := geometry.num_triangles * 3
-    result: []MarioVertex = make([]MarioVertex, count, context.allocator)
+    result: []MarioVertex = make([]MarioVertex, count, context.temp_allocator)
 
     for i in 0 ..< count {
         result[i] = MarioVertex{
@@ -283,11 +283,11 @@ new_sm64mariogeometrybuffers :: proc() -> ^SM64GeometryWrapper {
     max_vertices := int(max_triangles) * 3
     floats_per_vertex := 3 
 
-    wrapper := new(SM64GeometryWrapper, context.allocator)
-    wrapper.positions = make([]f32, max_vertices * floats_per_vertex, context.allocator)
-    wrapper.normals   = make([]f32, max_vertices * floats_per_vertex, context.allocator)
-    wrapper.colors    = make([]f32, max_vertices * floats_per_vertex, context.allocator)
-    wrapper.uvs       = make([]f32, max_vertices * 2, context.allocator)
+    wrapper := new(SM64GeometryWrapper, context.temp_allocator)
+    wrapper.positions = make([]f32, max_vertices * floats_per_vertex, context.temp_allocator)
+    wrapper.normals   = make([]f32, max_vertices * floats_per_vertex, context.temp_allocator)
+    wrapper.colors    = make([]f32, max_vertices * floats_per_vertex, context.temp_allocator)
+    wrapper.uvs       = make([]f32, max_vertices * 2, context.temp_allocator)
 
     wrapper.geom.position = &wrapper.positions[0]
     wrapper.geom.normal   = &wrapper.normals[0]
@@ -376,7 +376,7 @@ format_pos :: proc(state: MarioState, allocator := context.temp_allocator) -> st
 }
 
 concat_many :: proc(parts: []string) -> string {
-    result, err := strings.concatenate(parts, context.allocator)
+    result, err := strings.concatenate(parts, context.temp_allocator)
     if err != nil {
         panic("concat_many failed")
     }
@@ -385,8 +385,8 @@ concat_many :: proc(parts: []string) -> string {
 
 format_state :: proc(state: MarioState) -> string {
     parts := []string{
-        "Action: ", int_to_string(int(state.action), context.allocator), "\n",
-        "Health: ", int_to_string(int(state.health), context.allocator), "\n",
+        "Action: ", int_to_string(int(state.action), context.temp_allocator), "\n",
+        "Health: ", int_to_string(int(state.health), context.temp_allocator), "\n",
         format_pos(state),
     }
     return concat_many(parts)
@@ -422,7 +422,7 @@ MarioVertex :: struct {
 
 mario_vertex_triangles :: proc(geometry: ^MarioGeometry) -> [][3]MarioVertex {
     count := geometry.num_triangles
-    result := make([][3]MarioVertex, count, context.allocator)
+    result := make([][3]MarioVertex, count, context.temp_allocator)
 
     for i in 0 ..< count {
         base_idx := i * 3

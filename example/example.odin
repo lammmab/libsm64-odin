@@ -2,6 +2,7 @@ package example
 
 import SM64 "../"
 import "core:fmt"
+import "core:time"
 
 rompath: string : "./baserom.z64"
 
@@ -26,14 +27,14 @@ main :: proc() {
   }
 
   input := SM64.MarioInputs {
-    stickX = 0.5,
-    buttonA = 1,
+    stickY = 1,
   }
 
-  for i in 0..<10 {
+  for true {
     state := SM64.tick(&mario, input)
     fmt.println(SM64.format_state(state))
-    free_all(context.temp_allocator) // make sure you free the strings everytime you call format_state once you're done using them (after fmt.println)
+    free_all(context.temp_allocator) // free temp strings after printing each state
+    time.sleep(16 * time.Millisecond)
   }
 
   fmt.println("Simulation ended. Press Ctrl+C to exit.")
