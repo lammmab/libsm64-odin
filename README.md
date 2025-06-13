@@ -23,5 +23,5 @@ Grab the released, development ready copy from the releases page!
 
 [these examples]: https://github.com/lammmab/libsm64-odin/blob/main/example
 [these]: https://github.com/lammmab/libsm64-odin/blob/main/DLL.md
-[libsm64]: https://github.com/libsm64/libsm64/tree/
+[libsm64]: https://github.com/libsm64/libsm64/
 [odin c bindgen]: https://github.com/karl-zylinski/odin-c-bindgen/

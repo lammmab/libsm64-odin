@@ -33,7 +33,8 @@ main :: proc() {
   for true {
     state := SM64.tick(&mario, input)
     fmt.println(SM64.format_state(state))
-    free_all(context.temp_allocator) // free temp strings after printing each state
+    free_all(context.allocator)
+    free_all(context.temp_allocator) // free temp after simulation to not mem leak
     time.sleep(16 * time.Millisecond)
   }
 
@@ -41,7 +42,7 @@ main :: proc() {
   for true {}
   SM64.drop_mario(mario)
   // for &triangle in SM64.mario_vertex_triangles(&mario.geometry) {
-    // draw_triangle(&triangle, SM64.sm64_mario_texture_atlas(sm64)) -- use a renderer to draw mario
+    // draw_triangle(&triangle, SM64.sm64_mario_texture_atlas(sm64)) -- use a renderer to draw mario, check "draw_mario" in raylib-plane example
   // }
 }
 
